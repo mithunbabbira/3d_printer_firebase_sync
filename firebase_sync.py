@@ -65,12 +65,19 @@ class FirebaseSync:
         temperatures = {}
         
         # Bed temperature from heater_bed
+        # Only include if values are actually present (not None)
         if "heater_bed" in status_data:
             bed_heater = status_data["heater_bed"]
-            temperatures["bed"] = {
-                "actual": bed_heater.get("temperature", 0.0),
-                "target": bed_heater.get("target", 0.0)
-            }
+            if isinstance(bed_heater, dict):
+                bed_temp = {}
+                if "temperature" in bed_heater and bed_heater["temperature"] is not None:
+                    bed_temp["actual"] = bed_heater["temperature"]
+                if "target" in bed_heater and bed_heater["target"] is not None:
+                    bed_temp["target"] = bed_heater["target"]
+                
+                # Only add bed temperature if we have at least one valid value
+                if bed_temp:
+                    temperatures["bed"] = bed_temp
         
         # Extruder temperature - check heaters object or look for extruder heater
         # Heaters object may contain multiple heaters, look for extruder
@@ -82,33 +89,51 @@ class FirebaseSync:
                 for heater_name, heater_data in heaters.items():
                     if "extruder" in heater_name.lower() or heater_name == "extruder":
                         if isinstance(heater_data, dict):
-                            temperatures["extruder"] = {
-                                "actual": heater_data.get("temperature", 0.0),
-                                "target": heater_data.get("target", 0.0)
-                            }
+                            extruder_temp = {}
+                            if "temperature" in heater_data and heater_data["temperature"] is not None:
+                                extruder_temp["actual"] = heater_data["temperature"]
+                            if "target" in heater_data and heater_data["target"] is not None:
+                                extruder_temp["target"] = heater_data["target"]
+                            
+                            # Only add extruder temperature if we have at least one valid value
+                            if extruder_temp:
+                                temperatures["extruder"] = extruder_temp
                             break
         
         # Also check for direct extruder object (some configs have it)
         if "extruder" in status_data and "extruder" not in temperatures:
             extruder_heater = status_data["extruder"]
             if isinstance(extruder_heater, dict):
-                temperatures["extruder"] = {
-                    "actual": extruder_heater.get("temperature", 0.0),
-                    "target": extruder_heater.get("target", 0.0)
-                }
+                extruder_temp = {}
+                if "temperature" in extruder_heater and extruder_heater["temperature"] is not None:
+                    extruder_temp["actual"] = extruder_heater["temperature"]
+                if "target" in extruder_heater and extruder_heater["target"] is not None:
+                    extruder_temp["target"] = extruder_heater["target"]
+                
+                # Only add extruder temperature if we have at least one valid value
+                if extruder_temp:
+                    temperatures["extruder"] = extruder_temp
         
         if temperatures:
             transformed["temperatures"] = temperatures
         
         # Extract heater power data
+        # Only include if values are actually present (not None)
         if "heater_bed" in status_data:
             bed_heater = status_data["heater_bed"]
             if isinstance(bed_heater, dict):
-                transformed["heater_bed"] = {
-                    "power": bed_heater.get("power", 0.0),
-                    "target": bed_heater.get("target", 0.0),
-                    "temperature": bed_heater.get("temperature", 0.0)
-                }
+                bed_data = {}
+                # Only include fields that have actual values
+                if "power" in bed_heater and bed_heater["power"] is not None:
+                    bed_data["power"] = bed_heater["power"]
+                if "target" in bed_heater and bed_heater["target"] is not None:
+                    bed_data["target"] = bed_heater["target"]
+                if "temperature" in bed_heater and bed_heater["temperature"] is not None:
+                    bed_data["temperature"] = bed_heater["temperature"]
+                
+                # Only add heater_bed if we have at least one valid value
+                if bed_data:
+                    transformed["heater_bed"] = bed_data
         
         # Extract extruder heater power if available
         if "heaters" in status_data:
@@ -117,22 +142,36 @@ class FirebaseSync:
                 for heater_name, heater_data in heaters.items():
                     if "extruder" in heater_name.lower() or heater_name == "extruder":
                         if isinstance(heater_data, dict):
-                            transformed["extruder"] = {
-                                "power": heater_data.get("power", 0.0),
-                                "target": heater_data.get("target", 0.0),
-                                "temperature": heater_data.get("temperature", 0.0)
-                            }
+                            extruder_data = {}
+                            # Only include fields that have actual values
+                            if "power" in heater_data and heater_data["power"] is not None:
+                                extruder_data["power"] = heater_data["power"]
+                            if "target" in heater_data and heater_data["target"] is not None:
+                                extruder_data["target"] = heater_data["target"]
+                            if "temperature" in heater_data and heater_data["temperature"] is not None:
+                                extruder_data["temperature"] = heater_data["temperature"]
+                            
+                            # Only add extruder if we have at least one valid value
+                            if extruder_data:
+                                transformed["extruder"] = extruder_data
                             break
         
         # Also check for direct extruder object
         if "extruder" in status_data and "extruder" not in transformed:
             extruder_heater = status_data["extruder"]
             if isinstance(extruder_heater, dict):
-                transformed["extruder"] = {
-                    "power": extruder_heater.get("power", 0.0),
-                    "target": extruder_heater.get("target", 0.0),
-                    "temperature": extruder_heater.get("temperature", 0.0)
-                }
+                extruder_data = {}
+                # Only include fields that have actual values
+                if "power" in extruder_heater and extruder_heater["power"] is not None:
+                    extruder_data["power"] = extruder_heater["power"]
+                if "target" in extruder_heater and extruder_heater["target"] is not None:
+                    extruder_data["target"] = extruder_heater["target"]
+                if "temperature" in extruder_heater and extruder_heater["temperature"] is not None:
+                    extruder_data["temperature"] = extruder_heater["temperature"]
+                
+                # Only add extruder if we have at least one valid value
+                if extruder_data:
+                    transformed["extruder"] = extruder_data
         
         # Extract print stats
         if "print_stats" in status_data:
