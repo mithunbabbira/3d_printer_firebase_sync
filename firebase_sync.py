@@ -1,12 +1,34 @@
 """Firebase Firestore integration for syncing printer status."""
 import logging
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
 import firebase_admin
 from firebase_admin import credentials, firestore
 from config import Config
 
 logger = logging.getLogger(__name__)
+
+
+def round_value(value: Union[float, int], decimals: int = 2) -> Union[float, int]:
+    """
+    Round a numeric value to specified decimal places.
+    
+    Args:
+        value: The value to round
+        decimals: Number of decimal places (default: 2)
+        
+    Returns:
+        Rounded value (returns int if decimals=0 and value is whole number)
+    """
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    rounded = round(float(value), decimals)
+    # Return as int if it's a whole number
+    if decimals == 0 or rounded == int(rounded):
+        return int(rounded)
+    return rounded
 
 
 class FirebaseSync:
@@ -71,9 +93,9 @@ class FirebaseSync:
             if isinstance(bed_heater, dict):
                 bed_temp = {}
                 if "temperature" in bed_heater and bed_heater["temperature"] is not None:
-                    bed_temp["actual"] = bed_heater["temperature"]
+                    bed_temp["actual"] = round_value(bed_heater["temperature"], 1)  # 1 decimal for temps
                 if "target" in bed_heater and bed_heater["target"] is not None:
-                    bed_temp["target"] = bed_heater["target"]
+                    bed_temp["target"] = round_value(bed_heater["target"], 0)  # Whole numbers for targets
                 
                 # Only add bed temperature if we have at least one valid value
                 if bed_temp:
@@ -91,9 +113,9 @@ class FirebaseSync:
                         if isinstance(heater_data, dict):
                             extruder_temp = {}
                             if "temperature" in heater_data and heater_data["temperature"] is not None:
-                                extruder_temp["actual"] = heater_data["temperature"]
+                                extruder_temp["actual"] = round_value(heater_data["temperature"], 1)  # 1 decimal for temps
                             if "target" in heater_data and heater_data["target"] is not None:
-                                extruder_temp["target"] = heater_data["target"]
+                                extruder_temp["target"] = round_value(heater_data["target"], 0)  # Whole numbers for targets
                             
                             # Only add extruder temperature if we have at least one valid value
                             if extruder_temp:
@@ -106,9 +128,9 @@ class FirebaseSync:
             if isinstance(extruder_heater, dict):
                 extruder_temp = {}
                 if "temperature" in extruder_heater and extruder_heater["temperature"] is not None:
-                    extruder_temp["actual"] = extruder_heater["temperature"]
+                    extruder_temp["actual"] = round_value(extruder_heater["temperature"], 1)  # 1 decimal for temps
                 if "target" in extruder_heater and extruder_heater["target"] is not None:
-                    extruder_temp["target"] = extruder_heater["target"]
+                    extruder_temp["target"] = round_value(extruder_heater["target"], 0)  # Whole numbers for targets
                 
                 # Only add extruder temperature if we have at least one valid value
                 if extruder_temp:
@@ -125,11 +147,11 @@ class FirebaseSync:
                 bed_data = {}
                 # Only include fields that have actual values
                 if "power" in bed_heater and bed_heater["power"] is not None:
-                    bed_data["power"] = bed_heater["power"]
+                    bed_data["power"] = round_value(bed_heater["power"], 3)  # 3 decimals for power (0-1 range)
                 if "target" in bed_heater and bed_heater["target"] is not None:
-                    bed_data["target"] = bed_heater["target"]
+                    bed_data["target"] = round_value(bed_heater["target"], 0)  # Whole numbers for targets
                 if "temperature" in bed_heater and bed_heater["temperature"] is not None:
-                    bed_data["temperature"] = bed_heater["temperature"]
+                    bed_data["temperature"] = round_value(bed_heater["temperature"], 1)  # 1 decimal for temps
                 
                 # Only add heater_bed if we have at least one valid value
                 if bed_data:
@@ -145,11 +167,11 @@ class FirebaseSync:
                             extruder_data = {}
                             # Only include fields that have actual values
                             if "power" in heater_data and heater_data["power"] is not None:
-                                extruder_data["power"] = heater_data["power"]
+                                extruder_data["power"] = round_value(heater_data["power"], 3)  # 3 decimals for power
                             if "target" in heater_data and heater_data["target"] is not None:
-                                extruder_data["target"] = heater_data["target"]
+                                extruder_data["target"] = round_value(heater_data["target"], 0)  # Whole numbers for targets
                             if "temperature" in heater_data and heater_data["temperature"] is not None:
-                                extruder_data["temperature"] = heater_data["temperature"]
+                                extruder_data["temperature"] = round_value(heater_data["temperature"], 1)  # 1 decimal for temps
                             
                             # Only add extruder if we have at least one valid value
                             if extruder_data:
@@ -163,11 +185,11 @@ class FirebaseSync:
                 extruder_data = {}
                 # Only include fields that have actual values
                 if "power" in extruder_heater and extruder_heater["power"] is not None:
-                    extruder_data["power"] = extruder_heater["power"]
+                    extruder_data["power"] = round_value(extruder_heater["power"], 3)  # 3 decimals for power
                 if "target" in extruder_heater and extruder_heater["target"] is not None:
-                    extruder_data["target"] = extruder_heater["target"]
+                    extruder_data["target"] = round_value(extruder_heater["target"], 0)  # Whole numbers for targets
                 if "temperature" in extruder_heater and extruder_heater["temperature"] is not None:
-                    extruder_data["temperature"] = extruder_heater["temperature"]
+                    extruder_data["temperature"] = round_value(extruder_heater["temperature"], 1)  # 1 decimal for temps
                 
                 # Only add extruder if we have at least one valid value
                 if extruder_data:
@@ -177,12 +199,18 @@ class FirebaseSync:
         if "print_stats" in status_data:
             print_stats = status_data["print_stats"]
             if isinstance(print_stats, dict):
+                total_duration = print_stats.get("total_duration")
+                print_duration = print_stats.get("print_duration", 0)
+                time_remaining = None
+                if total_duration is not None:
+                    time_remaining = round_value(total_duration - print_duration, 0)  # Whole seconds
+                
                 transformed["print_stats"] = {
                     "state": print_stats.get("state", "unknown"),
-                    "print_duration": print_stats.get("print_duration", 0),
+                    "print_duration": round_value(print_duration, 1),  # 1 decimal for duration
                     "filename": print_stats.get("filename", ""),
-                    "progress": print_stats.get("progress", 0.0),
-                    "time_remaining": print_stats.get("total_duration", 0) - print_stats.get("print_duration", 0) if print_stats.get("total_duration") else None
+                    "progress": round_value(print_stats.get("progress", 0.0), 2),  # 2 decimals for progress %
+                    "time_remaining": time_remaining
                 }
         
         # Extract virtual_sdcard (print progress)
@@ -195,18 +223,18 @@ class FirebaseSync:
                 
                 if "print_stats" not in transformed:
                     transformed["print_stats"] = {}
-                transformed["print_stats"]["progress"] = progress
-                transformed["print_stats"]["file_position"] = file_position
-                transformed["print_stats"]["file_size"] = file_size
+                transformed["print_stats"]["progress"] = round_value(progress, 2)  # 2 decimals for progress %
+                transformed["print_stats"]["file_position"] = round_value(file_position, 0)  # Whole bytes
+                transformed["print_stats"]["file_size"] = round_value(file_size, 0)  # Whole bytes
         
         # Extract gcode_move (current position, speed, etc.)
         if "gcode_move" in status_data:
             gcode_move = status_data["gcode_move"]
             if isinstance(gcode_move, dict):
                 transformed["gcode_move"] = {
-                    "speed_factor": gcode_move.get("speed_factor", 1.0),
-                    "speed": gcode_move.get("speed", 0.0),
-                    "extrude_factor": gcode_move.get("extrude_factor", 1.0)
+                    "speed_factor": round_value(gcode_move.get("speed_factor", 1.0), 2),  # 2 decimals
+                    "speed": round_value(gcode_move.get("speed", 0.0), 0),  # Whole mm/s
+                    "extrude_factor": round_value(gcode_move.get("extrude_factor", 1.0), 2)  # 2 decimals
                 }
         
         # Extract display status if available
@@ -214,7 +242,7 @@ class FirebaseSync:
             display = status_data["display_status"]
             if isinstance(display, dict):
                 transformed["display_status"] = {
-                    "progress": display.get("progress", 0.0),
+                    "progress": round_value(display.get("progress", 0.0), 2),  # 2 decimals for progress
                     "message": display.get("message", "")
                 }
         
