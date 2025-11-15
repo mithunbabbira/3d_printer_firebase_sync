@@ -139,25 +139,31 @@ class FirebaseSync:
                 time_remaining = None
                 if total_duration is not None:
                     time_remaining = round_value(total_duration - print_duration, 0)  # Whole seconds
-                
+
                 transformed["print_stats"] = {
                     "state": print_stats.get("state", "unknown"),
                     "print_duration": round_value(print_duration, 1),  # 1 decimal for duration
                     "filename": print_stats.get("filename", ""),
-                    "progress": round_value(print_stats.get("progress", 0.0), 2),  # 2 decimals for progress %
                     "time_remaining": time_remaining
                 }
-        
-        # Extract virtual_sdcard (print progress and file size)
+
+        # Extract virtual_sdcard for file_size and calculate progress
         if "virtual_sdcard" in status_data:
             sdcard = status_data["virtual_sdcard"]
             if isinstance(sdcard, dict):
+                file_position = sdcard.get("file_position", 0)
                 file_size = sdcard.get("file_size", 0)
-                # Only add file_size if it's greater than 0
+
+                if "print_stats" not in transformed:
+                    transformed["print_stats"] = {}
+
+                # Calculate progress from file position
                 if file_size > 0:
-                    if "print_stats" not in transformed:
-                        transformed["print_stats"] = {}
+                    progress = (file_position / file_size) * 100
+                    transformed["print_stats"]["progress"] = round_value(progress, 2)  # 2 decimals for progress %
                     transformed["print_stats"]["file_size"] = round_value(file_size, 0)  # Whole bytes
+                else:
+                    transformed["print_stats"]["progress"] = 0.0
         
         # Extract display status if available
         if "display_status" in status_data:
