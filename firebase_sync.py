@@ -181,24 +181,35 @@ class FirebaseSync:
     def sync_status(self, status_data: Dict[str, Any]):
         """
         Sync printer status to Firestore.
-        
+
         Args:
             status_data: Raw status data from Moonraker
         """
         if not self._initialized or not self.db:
             logger.error("Firebase not initialized")
             return
-        
+
         try:
+            # Log incoming data for debugging
+            logger.info(f"Received status update with keys: {list(status_data.keys())}")
+            if "print_stats" in status_data:
+                logger.info(f"print_stats data: {status_data['print_stats']}")
+            if "virtual_sdcard" in status_data:
+                logger.info(f"virtual_sdcard data: {status_data['virtual_sdcard']}")
+
             # Transform data
             transformed_data = self.transform_status_data(status_data)
-            
+
+            # Log transformed data
+            if "print_stats" in transformed_data:
+                logger.info(f"Transformed print_stats: {transformed_data['print_stats']}")
+
             # Update Firestore document
             doc_ref = self.db.collection(Config.FIRESTORE_COLLECTION).document("current")
             doc_ref.set(transformed_data, merge=True)
-            
+
             logger.debug("Synced printer status to Firestore")
-            
+
         except Exception as e:
             logger.error(f"Failed to sync status to Firestore: {e}")
             # Don't raise - we want to continue even if one sync fails
