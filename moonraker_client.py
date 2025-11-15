@@ -96,7 +96,8 @@ class MoonrakerClient:
             params = {
                 "objects": {
                     "heater_bed": None,
-                    "heaters": None,  # May contain extruder info
+                    "extruder": None,  # Direct extruder object for temperature
+                    "heaters": None,  # May contain additional heater info
                     "print_stats": None,
                     "display_status": None,
                     "gcode_move": None,
