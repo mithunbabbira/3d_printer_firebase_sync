@@ -153,28 +153,27 @@ class FirebaseSync:
                 if "filename" in print_stats and print_stats["filename"]:
                     transformed["print_stats"]["filename"] = print_stats["filename"]
 
-        # Extract virtual_sdcard for file_size, filename, and calculate progress
+        # Extract virtual_sdcard for file_size, filename, and progress
         if "virtual_sdcard" in status_data:
             sdcard = status_data["virtual_sdcard"]
             if isinstance(sdcard, dict):
-                file_position = sdcard.get("file_position", 0)
-                file_size = sdcard.get("file_size", 0)
-
                 if "print_stats" not in transformed:
                     transformed["print_stats"] = {}
 
-                # Get filename from virtual_sdcard (use file_path if available)
-                filename = sdcard.get("file_path") or sdcard.get("filename", "")
-                if filename:
-                    transformed["print_stats"]["filename"] = filename
+                # Get filename from virtual_sdcard (file_path field)
+                file_path = sdcard.get("file_path")
+                if file_path:
+                    transformed["print_stats"]["filename"] = file_path
 
-                # Calculate progress from file position
+                # Get progress directly from virtual_sdcard (already a percentage 0-1, convert to 0-100)
+                progress = sdcard.get("progress", 0.0)
+                if progress is not None:
+                    transformed["print_stats"]["progress"] = round_value(progress * 100, 2)  # Convert 0-1 to 0-100
+
+                # Get file size
+                file_size = sdcard.get("file_size", 0)
                 if file_size > 0:
-                    progress = (file_position / file_size) * 100
-                    transformed["print_stats"]["progress"] = round_value(progress, 2)  # 2 decimals for progress %
-                    transformed["print_stats"]["file_size"] = round_value(file_size, 0)  # Whole bytes
-                else:
-                    transformed["print_stats"]["progress"] = 0.0
+                    transformed["print_stats"]["file_size"] = round_value(file_size, 0)
         
         # Extract display status if available
         if "display_status" in status_data:
