@@ -78,29 +78,25 @@ class FirebaseSync:
         Returns:
             Transformed data structure for Firestore
         """
-        transformed = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+        transformed = {}
 
-        # Extract heater power data
+        # Extract heater bed data
         # Only include if values are actually present (not None)
         if "heater_bed" in status_data:
             bed_heater = status_data["heater_bed"]
             if isinstance(bed_heater, dict):
                 bed_data = {}
                 # Only include fields that have actual values
-                if "power" in bed_heater and bed_heater["power"] is not None:
-                    bed_data["power"] = round_value(bed_heater["power"], 3)  # 3 decimals for power (0-1 range)
                 if "target" in bed_heater and bed_heater["target"] is not None:
                     bed_data["target"] = round_value(bed_heater["target"], 0)  # Whole numbers for targets
                 if "temperature" in bed_heater and bed_heater["temperature"] is not None:
                     bed_data["temperature"] = round_value(bed_heater["temperature"], 1)  # 1 decimal for temps
-                
+
                 # Only add heater_bed if we have at least one valid value
                 if bed_data:
                     transformed["heater_bed"] = bed_data
         
-        # Extract extruder heater power if available
+        # Extract extruder heater data if available
         if "heaters" in status_data:
             heaters = status_data["heaters"]
             if isinstance(heaters, dict):
@@ -109,31 +105,27 @@ class FirebaseSync:
                         if isinstance(heater_data, dict):
                             extruder_data = {}
                             # Only include fields that have actual values
-                            if "power" in heater_data and heater_data["power"] is not None:
-                                extruder_data["power"] = round_value(heater_data["power"], 3)  # 3 decimals for power
                             if "target" in heater_data and heater_data["target"] is not None:
                                 extruder_data["target"] = round_value(heater_data["target"], 0)  # Whole numbers for targets
                             if "temperature" in heater_data and heater_data["temperature"] is not None:
                                 extruder_data["temperature"] = round_value(heater_data["temperature"], 1)  # 1 decimal for temps
-                            
+
                             # Only add extruder if we have at least one valid value
                             if extruder_data:
                                 transformed["extruder"] = extruder_data
                             break
-        
+
         # Also check for direct extruder object
         if "extruder" in status_data and "extruder" not in transformed:
             extruder_heater = status_data["extruder"]
             if isinstance(extruder_heater, dict):
                 extruder_data = {}
                 # Only include fields that have actual values
-                if "power" in extruder_heater and extruder_heater["power"] is not None:
-                    extruder_data["power"] = round_value(extruder_heater["power"], 3)  # 3 decimals for power
                 if "target" in extruder_heater and extruder_heater["target"] is not None:
                     extruder_data["target"] = round_value(extruder_heater["target"], 0)  # Whole numbers for targets
                 if "temperature" in extruder_heater and extruder_heater["temperature"] is not None:
                     extruder_data["temperature"] = round_value(extruder_heater["temperature"], 1)  # 1 decimal for temps
-                
+
                 # Only add extruder if we have at least one valid value
                 if extruder_data:
                     transformed["extruder"] = extruder_data
@@ -156,28 +148,16 @@ class FirebaseSync:
                     "time_remaining": time_remaining
                 }
         
-        # Extract virtual_sdcard (print progress)
+        # Extract virtual_sdcard (print progress and file size)
         if "virtual_sdcard" in status_data:
             sdcard = status_data["virtual_sdcard"]
             if isinstance(sdcard, dict):
-                file_position = sdcard.get("file_position", 0)
                 file_size = sdcard.get("file_size", 0)
-                progress = (file_position / file_size * 100) if file_size > 0 else 0.0
-
-                if "print_stats" not in transformed:
-                    transformed["print_stats"] = {}
-                transformed["print_stats"]["progress"] = round_value(progress, 2)  # 2 decimals for progress %
-                transformed["print_stats"]["file_size"] = round_value(file_size, 0)  # Whole bytes
-        
-        # Extract gcode_move (current position, speed, etc.)
-        if "gcode_move" in status_data:
-            gcode_move = status_data["gcode_move"]
-            if isinstance(gcode_move, dict):
-                transformed["gcode_move"] = {
-                    "speed_factor": round_value(gcode_move.get("speed_factor", 1.0), 2),  # 2 decimals
-                    "speed": round_value(gcode_move.get("speed", 0.0), 0),  # Whole mm/s
-                    "extrude_factor": round_value(gcode_move.get("extrude_factor", 1.0), 2)  # 2 decimals
-                }
+                # Only add file_size if it's greater than 0
+                if file_size > 0:
+                    if "print_stats" not in transformed:
+                        transformed["print_stats"] = {}
+                    transformed["print_stats"]["file_size"] = round_value(file_size, 0)  # Whole bytes
         
         # Extract display status if available
         if "display_status" in status_data:
