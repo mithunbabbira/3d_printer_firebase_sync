@@ -104,16 +104,22 @@ class MoonrakerClient:
                     "virtual_sdcard": None
                 }
             }
-            
+
             response = await self._send_request("printer.objects.subscribe", params)
             result = response.get("result", {})
             self._subscription_id = result.get("subscription_id")
-            
+
+            # Get initial status from subscription response
+            status = result.get("status", {})
+            if status:
+                logger.info("Received initial status from subscription")
+                self.on_status_update(status)
+
             if self._subscription_id:
                 logger.info(f"Subscribed to printer status updates (subscription_id: {self._subscription_id})")
             else:
                 logger.warning("Subscription successful but no subscription_id returned")
-            
+
         except Exception as e:
             logger.error(f"Failed to subscribe to status updates: {e}")
             raise

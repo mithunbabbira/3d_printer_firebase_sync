@@ -134,17 +134,25 @@ class FirebaseSync:
         if "print_stats" in status_data:
             print_stats = status_data["print_stats"]
             if isinstance(print_stats, dict):
-                total_duration = print_stats.get("total_duration")
-                print_duration = print_stats.get("print_duration", 0)
-                time_remaining = None
-                if total_duration is not None:
-                    time_remaining = round_value(total_duration - print_duration, 0)  # Whole seconds
+                if "print_stats" not in transformed:
+                    transformed["print_stats"] = {}
 
-                transformed["print_stats"] = {
-                    "state": print_stats.get("state", "unknown"),
-                    "print_duration": round_value(print_duration, 1),  # 1 decimal for duration
-                    "time_remaining": time_remaining
-                }
+                # Only add fields that are actually present
+                if "state" in print_stats:
+                    transformed["print_stats"]["state"] = print_stats["state"]
+
+                if "filename" in print_stats and print_stats["filename"]:
+                    transformed["print_stats"]["filename"] = print_stats["filename"]
+
+                # Duration and time remaining
+                total_duration = print_stats.get("total_duration")
+                print_duration = print_stats.get("print_duration")
+                if print_duration is not None:
+                    transformed["print_stats"]["print_duration"] = round_value(print_duration, 1)
+
+                if total_duration is not None and print_duration is not None:
+                    time_remaining = round_value(total_duration - print_duration, 0)
+                    transformed["print_stats"]["time_remaining"] = time_remaining
 
         # Extract virtual_sdcard for file_size, filename, and progress
         if "virtual_sdcard" in status_data:
@@ -153,18 +161,19 @@ class FirebaseSync:
                 if "print_stats" not in transformed:
                     transformed["print_stats"] = {}
 
-                # Get filename from virtual_sdcard (file_path field) - always set it
-                file_path = sdcard.get("file_path") or ""
-                transformed["print_stats"]["filename"] = file_path
+                # Only add filename if file_path is present and not null
+                file_path = sdcard.get("file_path")
+                if file_path:
+                    transformed["print_stats"]["filename"] = file_path
 
                 # Get progress directly from virtual_sdcard (already a percentage 0-1, convert to 0-100)
-                progress = sdcard.get("progress", 0.0)
+                progress = sdcard.get("progress")
                 if progress is not None:
                     transformed["print_stats"]["progress"] = round_value(progress * 100, 2)  # Convert 0-1 to 0-100
 
                 # Get file size
-                file_size = sdcard.get("file_size", 0)
-                if file_size > 0:
+                file_size = sdcard.get("file_size")
+                if file_size and file_size > 0:
                     transformed["print_stats"]["file_size"] = round_value(file_size, 0)
         
         # Extract display status if available
