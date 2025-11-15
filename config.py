@@ -30,6 +30,9 @@ class Config:
     # Logging Configuration
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
     
+    # Sync Configuration
+    SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL", "15"))  # Sync interval in seconds
+    
     @classmethod
     def validate(cls):
         """Validate that required configuration is present."""

@@ -3,6 +3,7 @@ import asyncio
 import logging
 import signal
 import sys
+from typing import Optional
 from moonraker_client import MoonrakerClient
 from firebase_sync import FirebaseSync
 from config import Config
@@ -25,6 +26,7 @@ class PrinterDataSync:
         self.firebase_sync = FirebaseSync()
         self.moonraker_client: MoonrakerClient = None
         self.running = False
+        self._sync_task: Optional[asyncio.Task] = None
         self._setup_signal_handlers()
     
     def _setup_signal_handlers(self):
@@ -39,9 +41,28 @@ class PrinterDataSync:
     def _on_status_update(self, status_data):
         """Callback for Moonraker status updates."""
         try:
-            self.firebase_sync.sync_status(status_data)
+            # Store the update but don't sync immediately
+            # Sync will happen periodically via the sync task
+            self.firebase_sync.update_status(status_data)
         except Exception as e:
             logger.error(f"Error handling status update: {e}")
+    
+    async def _periodic_sync(self):
+        """Periodic task to sync status to Firebase."""
+        sync_interval = Config.SYNC_INTERVAL
+        logger.info(f"Starting periodic sync task (interval: {sync_interval} seconds)")
+        
+        while self.running:
+            try:
+                await asyncio.sleep(sync_interval)
+                if self.running:
+                    # Sync the latest status to Firebase
+                    self.firebase_sync.sync_status()
+            except asyncio.CancelledError:
+                logger.info("Periodic sync task cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in periodic sync: {e}")
     
     async def start(self):
         """Start the sync application."""
@@ -63,6 +84,10 @@ class PrinterDataSync:
             )
             
             self.running = True
+            
+            # Start periodic sync task
+            self._sync_task = asyncio.create_task(self._periodic_sync())
+            logger.info(f"Periodic sync task started (every {Config.SYNC_INTERVAL} seconds)")
             
             # Main loop with reconnection logic
             while self.running:
@@ -93,6 +118,19 @@ class PrinterDataSync:
     async def shutdown(self):
         """Shutdown the application gracefully."""
         logger.info("Shutting down...")
+        
+        # Cancel periodic sync task
+        if self._sync_task and not self._sync_task.done():
+            self._sync_task.cancel()
+            try:
+                await self._sync_task
+            except asyncio.CancelledError:
+                pass
+        
+        # Sync final status before shutdown
+        if self.firebase_sync:
+            logger.info("Syncing final status before shutdown...")
+            self.firebase_sync.sync_status()
         
         if self.moonraker_client:
             await self.moonraker_client.disconnect()

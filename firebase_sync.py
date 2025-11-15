@@ -38,6 +38,7 @@ class FirebaseSync:
         """Initialize Firebase Admin SDK."""
         self.db: Optional[firestore.Client] = None
         self._initialized = False
+        self._latest_status: Dict[str, Any] = {}  # Store latest merged status data
     
     def initialize(self):
         """Initialize Firebase Admin SDK."""
@@ -187,37 +188,71 @@ class FirebaseSync:
         
         return transformed
     
-    def sync_status(self, status_data: Dict[str, Any]):
+    def _merge_status_update(self, new_status: Dict[str, Any]):
         """
-        Sync printer status to Firestore.
+        Merge new status update into the latest status.
+        Moonraker sends partial updates, so we need to merge them.
+        
+        Args:
+            new_status: New status data from Moonraker
+        """
+        # Deep merge the status data
+        for key, value in new_status.items():
+            if key in self._latest_status and isinstance(self._latest_status[key], dict) and isinstance(value, dict):
+                # Recursively merge dictionaries
+                self._latest_status[key].update(value)
+            else:
+                # Replace or add new key
+                self._latest_status[key] = value
+    
+    def update_status(self, status_data: Dict[str, Any]):
+        """
+        Update the latest status data (does not sync to Firebase immediately).
+        This method is called for each status update from Moonraker.
 
         Args:
             status_data: Raw status data from Moonraker
+        """
+        # Merge the new status into our stored status
+        self._merge_status_update(status_data)
+        logger.debug(f"Updated latest status (keys: {list(status_data.keys())})")
+    
+    def sync_status(self, status_data: Optional[Dict[str, Any]] = None):
+        """
+        Sync printer status to Firestore.
+        If status_data is provided, it will be merged and synced.
+        Otherwise, the latest stored status will be synced.
+
+        Args:
+            status_data: Optional raw status data from Moonraker (will be merged if provided)
         """
         if not self._initialized or not self.db:
             logger.error("Firebase not initialized")
             return
 
         try:
-            # Log incoming data for debugging
-            logger.info(f"Received status update with keys: {list(status_data.keys())}")
-            if "print_stats" in status_data:
-                logger.info(f"print_stats data: {status_data['print_stats']}")
-            if "virtual_sdcard" in status_data:
-                logger.info(f"virtual_sdcard data: {status_data['virtual_sdcard']}")
+            # If new data provided, merge it first
+            if status_data:
+                self._merge_status_update(status_data)
+            
+            # If no status data stored, nothing to sync
+            if not self._latest_status:
+                logger.debug("No status data to sync")
+                return
 
-            # Transform data
-            transformed_data = self.transform_status_data(status_data)
+            # Transform the latest merged status
+            transformed_data = self.transform_status_data(self._latest_status)
 
-            # Log transformed data
+            # Log what we're syncing
+            logger.debug(f"Syncing status to Firestore (keys: {list(transformed_data.keys())})")
             if "print_stats" in transformed_data:
-                logger.info(f"Transformed print_stats: {transformed_data['print_stats']}")
+                logger.debug(f"Print stats: {transformed_data['print_stats']}")
 
             # Update Firestore document
             doc_ref = self.db.collection(Config.FIRESTORE_COLLECTION).document("current")
             doc_ref.set(transformed_data, merge=True)
 
-            logger.debug("Synced printer status to Firestore")
+            logger.info("Synced printer status to Firestore")
 
         except Exception as e:
             logger.error(f"Failed to sync status to Firestore: {e}")
