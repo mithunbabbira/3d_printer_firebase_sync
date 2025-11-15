@@ -81,64 +81,7 @@ class FirebaseSync:
         transformed = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        
-        # Extract temperature data
-        # Based on actual printer objects: heater_bed and heaters (which may contain extruder)
-        temperatures = {}
-        
-        # Bed temperature from heater_bed
-        # Only include if values are actually present (not None)
-        if "heater_bed" in status_data:
-            bed_heater = status_data["heater_bed"]
-            if isinstance(bed_heater, dict):
-                bed_temp = {}
-                if "temperature" in bed_heater and bed_heater["temperature"] is not None:
-                    bed_temp["actual"] = round_value(bed_heater["temperature"], 1)  # 1 decimal for temps
-                if "target" in bed_heater and bed_heater["target"] is not None:
-                    bed_temp["target"] = round_value(bed_heater["target"], 0)  # Whole numbers for targets
-                
-                # Only add bed temperature if we have at least one valid value
-                if bed_temp:
-                    temperatures["bed"] = bed_temp
-        
-        # Extruder temperature - check heaters object or look for extruder heater
-        # Heaters object may contain multiple heaters, look for extruder
-        if "heaters" in status_data:
-            heaters = status_data["heaters"]
-            # Heaters might be a dict with heater names as keys
-            if isinstance(heaters, dict):
-                # Look for extruder heater (could be "extruder", "heater_generic extruder", etc.)
-                for heater_name, heater_data in heaters.items():
-                    if "extruder" in heater_name.lower() or heater_name == "extruder":
-                        if isinstance(heater_data, dict):
-                            extruder_temp = {}
-                            if "temperature" in heater_data and heater_data["temperature"] is not None:
-                                extruder_temp["actual"] = round_value(heater_data["temperature"], 1)  # 1 decimal for temps
-                            if "target" in heater_data and heater_data["target"] is not None:
-                                extruder_temp["target"] = round_value(heater_data["target"], 0)  # Whole numbers for targets
-                            
-                            # Only add extruder temperature if we have at least one valid value
-                            if extruder_temp:
-                                temperatures["extruder"] = extruder_temp
-                            break
-        
-        # Also check for direct extruder object (some configs have it)
-        if "extruder" in status_data and "extruder" not in temperatures:
-            extruder_heater = status_data["extruder"]
-            if isinstance(extruder_heater, dict):
-                extruder_temp = {}
-                if "temperature" in extruder_heater and extruder_heater["temperature"] is not None:
-                    extruder_temp["actual"] = round_value(extruder_heater["temperature"], 1)  # 1 decimal for temps
-                if "target" in extruder_heater and extruder_heater["target"] is not None:
-                    extruder_temp["target"] = round_value(extruder_heater["target"], 0)  # Whole numbers for targets
-                
-                # Only add extruder temperature if we have at least one valid value
-                if extruder_temp:
-                    temperatures["extruder"] = extruder_temp
-        
-        if temperatures:
-            transformed["temperatures"] = temperatures
-        
+
         # Extract heater power data
         # Only include if values are actually present (not None)
         if "heater_bed" in status_data:
@@ -220,11 +163,10 @@ class FirebaseSync:
                 file_position = sdcard.get("file_position", 0)
                 file_size = sdcard.get("file_size", 0)
                 progress = (file_position / file_size * 100) if file_size > 0 else 0.0
-                
+
                 if "print_stats" not in transformed:
                     transformed["print_stats"] = {}
                 transformed["print_stats"]["progress"] = round_value(progress, 2)  # 2 decimals for progress %
-                transformed["print_stats"]["file_position"] = round_value(file_position, 0)  # Whole bytes
                 transformed["print_stats"]["file_size"] = round_value(file_size, 0)  # Whole bytes
         
         # Extract gcode_move (current position, speed, etc.)
