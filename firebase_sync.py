@@ -39,6 +39,7 @@ class FirebaseSync:
         self.db: Optional[firestore.Client] = None
         self._initialized = False
         self._latest_status: Dict[str, Any] = {}  # Store latest merged status data
+        self._last_synced_data: Dict[str, Any] = {}  # Store last data synced to Firestore
     
     def initialize(self):
         """Initialize Firebase Admin SDK."""
@@ -243,6 +244,11 @@ class FirebaseSync:
             # Transform the latest merged status
             transformed_data = self.transform_status_data(self._latest_status)
 
+            # Check if data has changed since last sync
+            if transformed_data == self._last_synced_data:
+                logger.debug("Status has not changed, skipping sync")
+                return
+
             # Log what we're syncing
             logger.debug(f"Syncing status to Firestore (keys: {list(transformed_data.keys())})")
             if "print_stats" in transformed_data:
@@ -251,6 +257,9 @@ class FirebaseSync:
             # Update Firestore document
             doc_ref = self.db.collection(Config.FIRESTORE_COLLECTION).document("current")
             doc_ref.set(transformed_data, merge=True)
+            
+            # Update last synced data
+            self._last_synced_data = transformed_data.copy()
 
             logger.info("Synced printer status to Firestore")
 
