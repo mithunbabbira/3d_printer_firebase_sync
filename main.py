@@ -41,11 +41,34 @@ class PrinterDataSync:
     def _on_status_update(self, status_data):
         """Callback for Moonraker status updates."""
         try:
+            # Check for filename change to fetch metadata
+            if "print_stats" in status_data and "filename" in status_data["print_stats"]:
+                filename = status_data["print_stats"]["filename"]
+                if filename:
+                    # Fetch metadata asynchronously
+                    asyncio.create_task(self._fetch_metadata(filename))
+            
+            # Also check virtual_sdcard for filename (sometimes it appears there)
+            if "virtual_sdcard" in status_data and "file_path" in status_data["virtual_sdcard"]:
+                filename = status_data["virtual_sdcard"]["file_path"]
+                if filename:
+                    asyncio.create_task(self._fetch_metadata(filename))
+
             # Store the update but don't sync immediately
             # Sync will happen periodically via the sync task
             self.firebase_sync.update_status(status_data)
         except Exception as e:
             logger.error(f"Error handling status update: {e}")
+
+    async def _fetch_metadata(self, filename: str):
+        """Fetch metadata for a file and update firebase sync."""
+        try:
+            if self.moonraker_client:
+                metadata = await self.moonraker_client.get_file_metadata(filename)
+                if metadata:
+                    self.firebase_sync.update_metadata(metadata)
+        except Exception as e:
+            logger.error(f"Error fetching metadata for {filename}: {e}")
     
     async def _periodic_sync(self):
         """Periodic task to sync status to Firebase."""

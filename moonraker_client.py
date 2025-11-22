@@ -28,6 +28,7 @@ class MoonrakerClient:
         self._max_reconnect_delay = 60
         self._request_id = 0
         self._subscription_id: Optional[int] = None
+        self._pending_requests: Dict[int, asyncio.Future] = {}
         
     def _get_next_request_id(self) -> int:
         """Get next JSON-RPC request ID."""
@@ -48,19 +49,46 @@ class MoonrakerClient:
         
         if params:
             request["params"] = params
+            
+        # Create a future to wait for the response
+        future = asyncio.get_running_loop().create_future()
+        self._pending_requests[request_id] = future
         
-        await self.websocket.send(json.dumps(request))
-        logger.debug(f"Sent request: {method} (id: {request_id})")
+        try:
+            await self.websocket.send(json.dumps(request))
+            logger.debug(f"Sent request: {method} (id: {request_id})")
+            
+            # Wait for response via the listen loop
+            response_data = await future
+            
+            if "error" in response_data:
+                error = response_data["error"]
+                raise Exception(f"Moonraker error: {error.get('message', 'Unknown error')}")
+            
+            return response_data
+        finally:
+            # Clean up the pending request
+            self._pending_requests.pop(request_id, None)
+    
+    async def get_file_metadata(self, filename: str) -> Dict[str, Any]:
+        """
+        Get metadata for a specific file.
         
-        # Wait for response
-        response = await self.websocket.recv()
-        response_data = json.loads(response)
-        
-        if "error" in response_data:
-            error = response_data["error"]
-            raise Exception(f"Moonraker error: {error.get('message', 'Unknown error')}")
-        
-        return response_data
+        Args:
+            filename: The name of the file (including path relative to gcodes root)
+            
+        Returns:
+            Dictionary containing file metadata
+        """
+        try:
+            # Ensure filename has correct prefix if needed, but usually Moonraker expects just the path
+            # server.files.metadata expects "filename" param
+            params = {"filename": filename}
+            response = await self._send_request("server.files.metadata", params)
+            return response.get("result", {})
+        except Exception as e:
+            logger.error(f"Failed to get metadata for {filename}: {e}")
+            return {}
     
     async def connect(self):
         """Connect to Moonraker WebSocket."""
@@ -81,13 +109,40 @@ class MoonrakerClient:
             logger.info("Connected to Moonraker WebSocket")
             
             # Subscribe to printer status updates
-            await self.subscribe_to_status()
+            # Note: This calls _send_request, which now relies on the listen loop being active.
+            # However, we haven't started the listen loop yet. 
+            # We need to start the listen loop concurrently or change how we subscribe.
+            # Ideally, subscribe should happen after listen starts, or listen should handle the handshake.
+            # But since we are in a simple script, we can't easily split them without major refactor.
+            # Wait! If we call subscribe here, it will await _send_request -> await future.
+            # But nothing is resolving the future because listen() isn't running!
+            # FIX: We should NOT subscribe here. We should subscribe in the listen loop or 
+            # start a background task for listening immediately after connect.
+            
+            # For now, let's just return and let the caller call listen().
+            # But wait, the caller calls listen() which blocks.
+            # We need to change the architecture slightly.
+            # The listen loop handles ALL incoming messages.
+            # We should probably send the subscribe request *after* the listen loop starts?
+            # Or, we can spawn the listen loop as a task?
+            
+            # Let's modify the main.py to start listen as a task?
+            # Or better, let's make subscribe_to_status fire-and-forget or handle it differently.
+            
+            # Actually, the cleanest way is to have listen() be the main driver.
+            # But we need to send the subscribe request.
+            
+            # Let's change connect to NOT subscribe.
+            # And add a method `on_connect` that sends the subscription.
+            # But `on_connect` needs to be async and awaited.
+            
+            # Alternative: In `listen`, we can check if we are subscribed. If not, subscribe.
             
         except Exception as e:
             logger.error(f"Failed to connect to Moonraker: {e}")
             self.connected = False
             raise
-    
+            
     async def subscribe_to_status(self):
         """Subscribe to printer object status updates."""
         try:
@@ -122,17 +177,29 @@ class MoonrakerClient:
 
         except Exception as e:
             logger.error(f"Failed to subscribe to status updates: {e}")
-            raise
+            # Don't raise here to avoid crashing the loop if subscription fails temporarily
     
     async def listen(self):
         """Listen for messages from Moonraker."""
         if not self.websocket:
             raise ConnectionError("WebSocket not connected")
         
+        # Start subscription as a background task once we start listening
+        # This ensures the listen loop is running to handle the response
+        asyncio.create_task(self.subscribe_to_status())
+        
         try:
             async for message in self.websocket:
                 try:
                     data = json.loads(message)
+                    
+                    # Handle responses to pending requests
+                    if "id" in data and data["id"] in self._pending_requests:
+                        request_id = data["id"]
+                        future = self._pending_requests[request_id]
+                        if not future.done():
+                            future.set_result(data)
+                        continue
                     
                     # Handle notifications (status updates)
                     if "method" in data and data["method"] == "notify_status_update":
@@ -152,10 +219,6 @@ class MoonrakerClient:
                     elif "method" in data:
                         logger.debug(f"Received notification: {data['method']}")
                     
-                    # Handle responses (ignore for now, handled in _send_request)
-                    elif "result" in data or "error" in data:
-                        logger.debug(f"Received response: {data.get('id', 'unknown')}")
-                    
                 except json.JSONDecodeError as e:
                     logger.warning(f"Failed to parse message: {e}")
                 except Exception as e:
@@ -164,6 +227,11 @@ class MoonrakerClient:
         except websockets.exceptions.ConnectionClosed:
             logger.warning("WebSocket connection closed")
             self.connected = False
+            # Cancel all pending requests
+            for future in self._pending_requests.values():
+                if not future.done():
+                    future.cancel()
+            self._pending_requests.clear()
             raise
         except Exception as e:
             logger.error(f"Error in listen loop: {e}")

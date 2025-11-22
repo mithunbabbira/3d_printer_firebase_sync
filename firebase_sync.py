@@ -42,6 +42,7 @@ class FirebaseSync:
         self._initialized = False
         self._latest_status: Dict[str, Any] = {}  # Store latest merged status data
         self._last_synced_data: Dict[str, Any] = {}  # Store last data synced to Firestore
+        self._current_file_metadata: Dict[str, Any] = {}  # Store metadata for current file
         self._queue_listener = None
     
     def initialize(self):
@@ -75,6 +76,17 @@ class FirebaseSync:
         except Exception as e:
             logger.error(f"Failed to initialize Firebase: {e}")
             raise
+            raise
+    
+    def update_metadata(self, metadata: Dict[str, Any]):
+        """
+        Update current file metadata.
+        
+        Args:
+            metadata: File metadata from Moonraker
+        """
+        self._current_file_metadata = metadata
+        logger.info(f"Updated file metadata (estimated_time: {metadata.get('estimated_time')})")
     
     def transform_status_data(self, status_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -87,6 +99,7 @@ class FirebaseSync:
             Transformed data structure for Firestore
         """
         transformed = {}
+        progress = None  # Initialize progress to avoid UnboundLocalError
 
         # Extract heater bed data
         # Only include if values are actually present (not None)
@@ -159,7 +172,21 @@ class FirebaseSync:
                     transformed["print_stats"]["print_duration"] = round_value(print_duration, 1)
 
                 if total_duration is not None and print_duration is not None:
-                    time_remaining = round_value(total_duration - print_duration, 0)
+                    # Calculate time remaining using estimated_time from metadata if available
+                    estimated_time = self._current_file_metadata.get("estimated_time")
+                    
+                    if estimated_time:
+                        # If we have metadata, use estimated_time - print_duration
+                        time_remaining = max(0, round_value(estimated_time - print_duration, 0))
+                    elif progress and progress > 0:
+                        # Fallback: Estimate based on progress
+                        # (print_duration / progress) = total_estimated_time
+                        total_estimated = print_duration / progress
+                        time_remaining = max(0, round_value(total_estimated - print_duration, 0))
+                    else:
+                        # Last resort: just use what we have (though likely incorrect as it includes pause)
+                        time_remaining = max(0, round_value(total_duration - print_duration, 0))
+                        
                     transformed["print_stats"]["time_remaining"] = time_remaining
 
         # Extract virtual_sdcard for file_size, filename, and progress
