@@ -1,7 +1,9 @@
 """Firebase Firestore integration for syncing printer status."""
 import logging
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional, Union, List
+import threading
+import requests
 import firebase_admin
 from firebase_admin import credentials, firestore
 from config import Config
@@ -40,6 +42,7 @@ class FirebaseSync:
         self._initialized = False
         self._latest_status: Dict[str, Any] = {}  # Store latest merged status data
         self._last_synced_data: Dict[str, Any] = {}  # Store last data synced to Firestore
+        self._queue_listener = None
     
     def initialize(self):
         """Initialize Firebase Admin SDK."""
@@ -65,6 +68,9 @@ class FirebaseSync:
             self.db = firestore.client()
             self._initialized = True
             logger.info("Firestore client initialized")
+            
+            # Setup queue listener
+            self._setup_queue_listener()
             
         except Exception as e:
             logger.error(f"Failed to initialize Firebase: {e}")
@@ -266,4 +272,123 @@ class FirebaseSync:
         except Exception as e:
             logger.error(f"Failed to sync status to Firestore: {e}")
             # Don't raise - we want to continue even if one sync fails
+
+    def _setup_queue_listener(self):
+        """Setup listener for print queue changes."""
+        try:
+            doc_ref = self.db.collection("print_queue").document("main")
+            self._queue_listener = doc_ref.on_snapshot(self._on_queue_snapshot)
+            logger.info("Print queue listener started")
+        except Exception as e:
+            logger.error(f"Failed to setup queue listener: {e}")
+
+    def _on_queue_snapshot(self, doc_snapshot, changes, read_time):
+        """
+        Callback for print queue snapshot updates.
+        
+        Args:
+            doc_snapshot: List of DocumentSnapshot (should be length 1)
+            changes: List of changes
+            read_time: Time of read
+        """
+        try:
+            for doc in doc_snapshot:
+                data = doc.to_dict()
+                if not data or "queue" not in data:
+                    continue
+
+                queue_list = data["queue"]
+                if not isinstance(queue_list, list):
+                    continue
+
+                updated = False
+                new_queue = []
+                
+                for item in queue_list:
+                    # Check if item needs notification
+                    if (isinstance(item, dict) and 
+                        item.get("status") == "printing" and 
+                        not item.get("start_msg_sent", False)):
+                        
+                        user_id = item.get("requested_by")
+                        if user_id:
+                            stream_preference = item.get("stream_preference", "public")
+                            private_link = item.get("private_stream_link")
+                            
+                            logger.info(f"Found new printing job for user {user_id}, sending notification...")
+                            if self._send_notification(user_id, stream_preference, private_link):
+                                item["start_msg_sent"] = True
+                                updated = True
+                    
+                    new_queue.append(item)
+
+                # If we modified any items, update the document
+                if updated:
+                    doc.reference.update({"queue": new_queue})
+                    logger.info("Updated print queue with notification status")
+
+        except Exception as e:
+            logger.error(f"Error in queue snapshot listener: {e}")
+
+    def _send_notification(self, user_id: str, stream_preference: str = "public", private_link: Optional[str] = None) -> bool:
+        """
+        Send WhatsApp notification to user.
+        
+        Args:
+            user_id: The user ID to notify
+            stream_preference: "public" or "private"
+            private_link: YouTube link for private stream
+            
+        Returns:
+            True if notification sent successfully, False otherwise
+        """
+        try:
+            # 1. Get user's phone number and name
+            user_doc = self.db.collection("users").document(user_id).get()
+            if not user_doc.exists:
+                logger.warning(f"User {user_id} not found")
+                return False
+            
+            user_data = user_doc.to_dict()
+            phone_number = user_data.get("phone_number")
+            user_name = user_data.get("display_name") or user_data.get("name") or "User"
+            
+            if not phone_number:
+                logger.warning(f"No phone number for user {user_id}")
+                return False
+            
+            # 2. Determine stream link
+            if stream_preference == "private" and private_link:
+                stream_link = private_link
+            else:
+                stream_link = "https://controlthisonweb.com/"
+            
+            # 3. Construct message
+            message = f"Hello {user_name}, Your 3D printing has started. You can watch the live stream here: {stream_link}"
+            
+            # 4. Call local API to send WhatsApp message
+            api_url = Config.WHATSAPP_API_URL
+            payload = {
+                "number": phone_number,
+                "message": message
+            }
+            
+            logger.debug(f"Calling WhatsApp API for {phone_number}")
+            response = requests.post(
+                api_url, 
+                json=payload, 
+                headers={'Content-Type': 'application/json'},
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                logger.info(f"WhatsApp message sent successfully to {phone_number}")
+                return True
+            else:
+                logger.error(f"Failed to send WhatsApp message. Status: {response.status_code}, Response: {response.text}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error sending notification: {e}")
+            return False
 

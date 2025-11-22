@@ -26,6 +26,12 @@ class Config:
         "FIRESTORE_COLLECTION",
         "printer_status"
     )
+
+    # WhatsApp API Configuration
+    WHATSAPP_API_URL = os.getenv(
+        "WHATSAPP_API_URL",
+        "http://raspberrypi.local:3001/send"
+    )
     
     # Logging Configuration
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
